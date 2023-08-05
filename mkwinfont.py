@@ -37,9 +37,9 @@ def dword(i):
 def frombyte(s):
     return ord(s)
 def fromword(s):
-    return frombyte(s[0:1]) + 256 * frombyte(s[1:2])
+    return frombyte(s[:1]) + 256 * frombyte(s[1:2])
 def fromdword(s):
-    return fromword(s[0:2]) | (fromword(s[2:4]) << 16)
+    return fromword(s[:2]) | fromword(s[2:4]) << 16
 
 def asciz(s):
     i = string.find(s, "\0")
@@ -167,20 +167,19 @@ def fnt(font):
     maxwidth = 0
     fixed = 1
     for i in range(0,256):
-	if avgwidth != font.chars[i].width:
-	    fixed = 0
-	if maxwidth < font.chars[i].width:
-	    maxwidth = font.chars[i].width
+        if avgwidth != font.chars[i].width:
+            fixed = 0
+        maxwidth = max(maxwidth, font.chars[i].width)
     # Work out how many 8-pixel wide columns we need to represent a char.
     widthbytes = (maxwidth+7)/8
     widthbytes = (widthbytes+1) &~ 1  # round up to multiple of 2
     # widthbytes = 3 # FIXME!
 
     file = ""
-    file = file + word(0x0300) # file version
+    file += word(0x0300)
     file = file + dword(0)     # file size (come back and fix later)
     copyright = font.copyright + ("\0" * 60)
-    copyright = copyright[0:60]
+    copyright = copyright[:60]
     file = file + copyright
     file = file + word(0)      # font type (raster, bits in file)
     file = file + word(font.pointsize) # nominal point size
@@ -194,16 +193,10 @@ def fnt(font):
     file = file + byte(font.strikeout)
     file = file + word(font.weight)   # 1 to 1000; 400 is normal.
     file = file + byte(font.charset)
-    if fixed:
-	pixwidth = avgwidth
-    else:
-	pixwidth = 0
+    pixwidth = avgwidth if fixed else 0
     file = file + word(pixwidth) # width, or 0 if var-width
     file = file + word(font.height) # height
-    if fixed:
-	pitchfamily = 0
-    else:
-	pitchfamily = 1
+    pitchfamily = 0 if fixed else 1
     file = file + byte(pitchfamily) # pitch and family
     file = file + word(avgwidth)
     file = file + word(maxwidth)
@@ -217,10 +210,7 @@ def fnt(font):
     file = file + dword(0)         # BitsPointer (used at load time)
     file = file + dword(0)         # pointer to bitmap data
     file = file + byte(0)          # reserved
-    if fixed:
-	dfFlags = 1
-    else:
-	dfFlags = 2
+    dfFlags = 1 if fixed else 2
     file = file + dword(dfFlags)   # dfFlags
     file = file + word(0) + word(0) + word(0) # Aspace, Bspace, Cspace
     file = file + dword(0)         # colour pointer
@@ -233,41 +223,28 @@ def fnt(font):
     file = file[:0x71] + dword(offset_bitmaps) + file[0x71+4:]
     bitmaps = ""
     for i in range(0,257):
-	if i < 256:
-	    width = font.chars[i].width
-	else:
-	    width = avgwidth
-	file = file + word(width)
-	file = file + dword(offset_bitmaps + len(bitmaps))
-	for j in range(widthbytes):
-	    for k in range(font.height):
-		if i < 256:
-		    chardata = font.chars[i].data[k]
-		else:
-		    chardata = 0
-		chardata = chardata << (8*widthbytes - width)
-		bitmaps = bitmaps + byte(chardata >> (8*(widthbytes-j-1)))
+        width = font.chars[i].width if i < 256 else avgwidth
+        file = file + word(width)
+        file = file + dword(offset_bitmaps + len(bitmaps))
+        for j in range(widthbytes):
+            for k in range(font.height):
+                chardata = font.chars[i].data[k] if i < 256 else 0
+                chardata = chardata << (8*widthbytes - width)
+                bitmaps = bitmaps + byte(chardata >> (8*(widthbytes-j-1)))
 
     file = file + bitmaps
     # Now the face name. Fix up the face name offset at 0x69.
     file = file[:0x69] + dword(len(file)) + file[0x69+4:]
     file = file + font.facename + "\0"
-    # And finally fix up the file size at 0x2.
-    file = file[:0x2] + dword(len(file)) + file[0x2+4:]
-
-    # Done.
-    return file
+    return file[:0x2] + dword(len(file)) + file[0x2+4:]
 
 def direntry(f):
     "Return the FONTDIRENTRY, given the data in a .FNT file."
     device = fromdword(f[0x65:])
     face = fromdword(f[0x69:])
-    if device == 0:
-	devname = ""
-    else:
-	devname = asciz(f[device:])
+    devname = "" if device == 0 else asciz(f[device:])
     facename = asciz(f[face:])
-    return f[0:0x71] + devname + "\0" + facename + "\0"
+    return f[:0x71] + devname + "\0" + facename + "\0"
 
 stubcode = [
   0xBA, 0x0E, 0x00, # mov dx,0xe
@@ -283,8 +260,8 @@ stubmsg = "This is not a program!\r\nFont library created by mkwinfont.\r\n"
 def stub():
     "Create a small MZ executable."
     file = ""
-    file = file + "MZ" + word(0) + word(0)
-    file = file + word(0) # no relocations
+    file = f"{file}MZ{word(0)}{word(0)}"
+    file += word(0)
     file = file + word(4) # 4-para header
     file = file + word(0x10) # 16 extra para for stack
     file = file + word(0xFFFF) # maximum extra paras: LOTS
